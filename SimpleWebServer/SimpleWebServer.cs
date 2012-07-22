@@ -1,6 +1,7 @@
 ﻿using System;
 using System.IO;
 using System.Net;
+using System.Diagnostics;
 
 namespace MB.Web
 {
@@ -18,7 +19,7 @@ namespace MB.Web
         /// Does not start the server automatically.
         /// If no file name is provided, index.html is returned (if it exists).
         /// </summary>
-        /// <param name="prefix">The htpp address prefix.</param>
+        /// <param name="prefix">The http address prefix.</param>
         /// <param name="rootDir">The root directory to serve the files from.</param>
         public SimpleWebServer(string prefix, string rootDir)
         {
@@ -40,12 +41,27 @@ namespace MB.Web
 
         private void OnReceivedRequest(HttpListenerRequest request, HttpListenerResponse response)
         {
-            var fileName = request.Url.AbsolutePath;
+            var fileName = GetFileNameFromUrlPath(request.Url.AbsolutePath);
+            response.ContentType = MimeHelper.GetMimeType(fileName);
+            TryServeFile(response, fileName);
+        }
 
-            Console.WriteLine("request: {0}", fileName);
+        private string GetFileNameFromUrlPath(string fileName)
+        {
+            Trace.WriteLine("request: " + fileName);
+            fileName = StripLeadingSlash(fileName);
+            fileName = GetDefaultDocument(fileName);
+            fileName = Path.Combine(_rootDir, fileName);
+            return fileName;
+        }
 
-            fileName = fileName.Substring(1); 
-       
+        private static string StripLeadingSlash(string fileName)
+        {
+            return fileName.Substring(1);
+        }
+
+        private static string GetDefaultDocument(string fileName)
+        {
             // if no filename is given, use index.html
             if (string.IsNullOrEmpty(fileName))
                 fileName = "index.html";
@@ -55,26 +71,21 @@ namespace MB.Web
                 if (parts.Length > 0 && string.IsNullOrEmpty(parts[parts.Length - 1]))
                     fileName = Path.Combine(fileName, "index.html");
             }
+            return fileName;
+        }
 
-            fileName = Path.Combine(_rootDir, fileName);
-
-            response.ContentType = MimeHelper.GetMimeType(fileName);
-
+        private static void TryServeFile(HttpListenerResponse response, string fileName)
+        {
             FileStream fileStream = null;
 
             try
             {
                 fileStream = new FileStream(fileName, FileMode.Open);
-
-                var buffer = new byte[1024 * 16];
-                int nbytes;
-
-                while ((nbytes = fileStream.Read(buffer, 0, buffer.Length)) > 0)
-                    response.OutputStream.Write(buffer, 0, nbytes);
+                ServeFileStream(response, fileStream);
             }
-            catch (Exception e)
+            catch
             {
-                Console.WriteLine("error serving file", e);
+                Trace.WriteLine("error serving file");
                 response.StatusCode = 404;
             }
             finally
@@ -83,6 +94,15 @@ namespace MB.Web
                     fileStream.Close();
                 response.OutputStream.Close();
             }
+        }
+
+        private static void ServeFileStream(HttpListenerResponse response, FileStream fileStream)
+        {
+            var buffer = new byte[1024 * 16];
+            int nbytes;
+
+            while ((nbytes = fileStream.Read(buffer, 0, buffer.Length)) > 0)
+                response.OutputStream.Write(buffer, 0, nbytes);
         }
     }
 }

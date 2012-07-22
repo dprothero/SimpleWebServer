@@ -1,5 +1,6 @@
 ﻿using System;
 using MB.Web;
+using System.Diagnostics;
 
 namespace SimpleWebServerExample
 {
@@ -7,12 +8,14 @@ namespace SimpleWebServerExample
     {
         static void Main(string[] args)
         {
-            var server = new SimpleWebServer("http://localhost:8080/", "files/");
+            Trace.Listeners.Add(new ConsoleTraceListener());
+           
+            var server = new SimpleWebServer("http://localhost:10000/", "files/");
 
             server.Start();
 
             Console.WriteLine("Press key to exit ..."); 
-            Console.Read();
+            Console.ReadKey();
         }
     }
 }

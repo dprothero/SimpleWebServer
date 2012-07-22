@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Net;
 using System.Threading.Tasks;
+using System.Diagnostics;
 
 namespace MB.Web
 {
@@ -29,71 +30,110 @@ namespace MB.Web
         public void Start()
         {
             if (_isRunning) return;
+            CheckIfHttpListenerIsSupported();
+            CheckForMissingPrefix();
+            TryStartListener();
+            Listen();
+        }
 
+        private static void CheckIfHttpListenerIsSupported()
+        {
             if (!HttpListener.IsSupported)
-            {
-                Console.WriteLine("ERROR! Windows XP SP2 or Server 2003 is required to use the HttpListener class.");
-                return;
-            }
+                throw new Exception("ERROR! Windows XP SP2 or Server 2003 is required to use the HttpListener class.");
+        }
 
+        private void CheckForMissingPrefix()
+        {
             if (_prefix == null)
-            {
-                Console.WriteLine("ERROR! prefix missing");
-                return;
-            }
+                throw new Exception("ERROR! prefix missing");
+        }
 
+        private void TryStartListener()
+        {
             try
             {
-                _listener = new HttpListener();
-                _listener.Prefixes.Add(_prefix);
-                _listener.Start();
-
-                _isRunning = true;
+                StartListener();
             }
-            catch (HttpListenerException ex) 
+            catch (HttpListenerException ex)
             {
-                Console.WriteLine("ERROR! http listener at {0} could not be started", _prefix);
-                Console.WriteLine("make sure the user has the rights for this port or run as administrator");
-                Console.WriteLine(ex);
-                
                 _isRunning = false;
+                throw new Exception(String.Format("ERROR! http listener at {0} could not be started\nmake sure the user has the rights for this port or run as administrator", _prefix), ex);
             }
+        }
 
+        private void StartListener()
+        {
+            _listener = new HttpListener();
+            _listener.Prefixes.Add(_prefix);
+            _listener.Start();
+
+            _isRunning = true;
+        }
+
+        private void Listen()
+        {
             if (_isRunning)
-            {
-                Console.WriteLine("started at " + _prefix);
+                CreateListenTask();
+        }
 
-                Task.Factory.StartNew(() =>
-                {
-                    while (!_isStopping)
-                    {
-                        var context = _listener.GetContext();
-                        var request = context.Request;
-                        var response = context.Response;                        
+        private void CreateListenTask()
+        {
+            Trace.WriteLine("started at " + _prefix);
+            Task.Factory.StartNew(() => { DoListenTask(); } );
+        }
 
-                        //Console.WriteLine("KeepAlive: {0}", request.KeepAlive);
-                        //Console.WriteLine("Local end point: {0}", request.LocalEndPoint.ToString());
-                        //Console.WriteLine("Remote end point: {0}", request.RemoteEndPoint.ToString());
-                        //Console.WriteLine("Is local? {0}", request.IsLocal);
-                        //Console.WriteLine("HTTP method: {0}", request.HttpMethod);
-                        //Console.WriteLine("Protocol version: {0}", request.ProtocolVersion);
-                        //Console.WriteLine("Is authenticated: {0}", request.IsAuthenticated);
-                        //Console.WriteLine("Is secure: {0}", request.IsSecureConnection);                        
+        private void DoListenTask()
+        {
+            while (!_isStopping)
+                WaitForAndHandleRequest();
 
-                        if (OnReceivedRequest != null)
-                            OnReceivedRequest(request, response);
-                    }
+            StopListener();
+        }
 
-                    _isRunning = false;
-                    _isStopping = false;
-                    _listener.Close();
+        private void WaitForAndHandleRequest()
+        {
+            var context = _listener.GetContext();
+            var request = context.Request;
+            var response = context.Response;
 
-                    Console.WriteLine("stopped");
+            if (ShowDebugOutput)
+                WriteDebugInfo(request);
+            FireOnReceivedRequest(request, response);
+        }
 
-                    if (OnStopped != null)
-                        OnStopped();
-                });
-            }
+        private static void WriteDebugInfo(HttpListenerRequest request)
+        {
+            Debug.WriteLine(String.Format("KeepAlive: {0}", request.KeepAlive));
+            Debug.WriteLine(String.Format("Local end point: {0}", request.LocalEndPoint.ToString()));
+            Debug.WriteLine(String.Format("Remote end point: {0}", request.RemoteEndPoint.ToString()));
+            Debug.WriteLine(String.Format("Is local? {0}", request.IsLocal));
+            Debug.WriteLine(String.Format("HTTP method: {0}", request.HttpMethod));
+            Debug.WriteLine(String.Format("Protocol version: {0}", request.ProtocolVersion));
+            Debug.WriteLine(String.Format("Is authenticated: {0}", request.IsAuthenticated));
+            Debug.WriteLine(String.Format("Is secure: {0}", request.IsSecureConnection));
+        }
+
+        private void FireOnReceivedRequest(HttpListenerRequest request, HttpListenerResponse response)
+        {
+            if (OnReceivedRequest != null)
+                OnReceivedRequest(request, response);
+        }
+
+        private void StopListener()
+        {
+            _isRunning = false;
+            _isStopping = false;
+            _listener.Close();
+
+            Trace.WriteLine("stopped");
+
+            FireOnStopped();
+        }
+
+        private void FireOnStopped()
+        {
+            if (OnStopped != null)
+                OnStopped();
         }
 
         /// <summary>
@@ -120,6 +160,15 @@ namespace MB.Web
         public Action OnStopped 
         { 
             get; 
+            set;
+        }
+
+        /// <summary>
+        /// If True, SimpleHttpListener outputs additional debugging info for each request.
+        /// </summary>
+        public Boolean ShowDebugOutput
+        {
+            get;
             set;
         }
     }
